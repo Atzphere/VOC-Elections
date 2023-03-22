@@ -124,6 +124,8 @@ class Candidate:
 
         return self.name == other.name
 
+Yes = Candidate("Yes", ("N/A",), Info("N/A", True, []))
+No = Candidate("No", ("N/A",), Info("N/A", True, []))
 
 class Ballot:
     """
@@ -134,7 +136,7 @@ class Ballot:
     """
 
     def __init__(self, ranked_candidates: List[Candidate]):
-        self.ranked_candidates: List[Candidate] = tuple(ranked_candidates)
+        self.ranked_candidates: List[Candidate] = ranked_candidates
 
         if Ballot._is_duplicates(ranked_candidates):
             raise DuplicateCandidatesError
@@ -199,27 +201,74 @@ class PositionElection:
         The number of seats available for this position (i.e. quartermaster
         typically has multiple.)
     '''
-    debug = True
+
+    debug = False
 
     def __init__(self, position, candidates, ballots,
                  evaluator_method=pyrankvote.preferential_block_voting,
                  seats=1):
         self.position = position
         self.candidates = candidates
+        self.starting = copy.copy(self.candidates)
         self.ballots = ballots
         self.evaluator_method = evaluator_method
+        self.seats = seats
+        self.final_winners = []
+        self.lastwinner = None
 
     def compute_winners(self):
-        election_result = self.evaluator_method(self.candidates, self.ballots)
-        if PositionElection.debug:
-            print(election_result)
-        winners = election_result.get_winners()
-        print("The following {} for {}:"
-              .format("people have won the positions"
-                      if self.seats != 1 else
-                      "person has won the position",
-                      self.position))
-        print(winners)
+        if len(self.candidates) == 0:
+            print("\nNo one is running for {} anymore! :("
+                  .format(self.position))
+            if self.lastwinner is not None:
+                print("The last person to have won this position was {} with ranking {}"
+                      .format(self.lastwinner.name,
+                              self.lastcandidate.index(self.position) + 1))
+            else:
+                print("Nobody ever won {} as a preferred position."
+                      .format(self.position))
+                print("The original candidates were {}"
+                      .format(list([c.name for c in self.starting])))
+        if No in self.ballots[0].ranked_candidates or Yes in self.ballots[0].ranked_candidates:
+            sole_candidate = self.candidates[0]
+            tracker = 0
+            for b in self.ballots:
+                # if tracker ends up positive, vote passes. else no.
+                if b.ranked_candidates[0].name == "Yes":
+                    tracker += 1
+                else:
+                    tracker -= 1
+            ranking = sole_candidate.positions.index(self.position) + 1
+            if tracker >= 0:
+                print("\n{} has won {} (only candidate in role, enough yes votes)!"
+                      .format(sole_candidate.name, self.position))
+                print("Their ranking for this role is #{}".format(ranking))
+                self.lastwinner = sole_candidate
+                return zip([self.candidates[0]], [ranking])
+
+            if tracker < 0:  # god forbid
+                print("\n{} did not win {} (only candidate in role, not enough yes votes)."
+                      .format(sole_candidate.name, self.position))
+                print("Their ranking for this role is #{}".format(ranking))
+                return None
+
+        elif len(self.candidates) != 0:
+            election_result = self.evaluator_method(self.candidates,
+                                                    self.ballots, self.seats)
+            if PositionElection.debug:
+                print(election_result)
+            winners = election_result.get_winners()
+            rankings = list([w.positions.index(self.position) + 1
+                             for w in winners])
+            print("\nThe following {} for {}:"
+                  .format("people have won the positions"
+                          if self.seats != 1 else
+                          "person has won the position",
+                          self.position))
+            print(["{}, who ranked it #{}".format(w, r)
+                   for w, r in zip(winners, rankings)])
+            return zip(winners, rankings)
+
         # generate names and emails
 
     def remove_candidate(self, candidate):
@@ -227,14 +276,18 @@ class PositionElection:
             self.candidates.remove(candidate)
             for ballot in self.ballots:
                 if candidate.name in ballot.ranked_candidates:
-                    ballot.ranked_candidates.remove()
+                    ballot.ranked_candidates.remove(candidate)
             print("{} removed from {} election and ballots"
                   .format(candidate, self.position))
 
     def __str__(self):
-        return ("===Election for {}===\n".format(self.position)
+        return ("===~Election for {}~===\n".format(self.position)
                 + "Candidates: {}\n".format([str(c) for c in self.candidates])
-                + "{} Ballots".format(len(self.ballots)))
+                + "{} Ballots\n".format(len(self.ballots))
+                + "{} seats".format(self.seats))
+
+    def __repr__(self) -> str:
+        return "<PositionElection('%s')>" % self.position
 
 
 def get_ballots(fname: str, position_cols, candidates,
@@ -286,8 +339,6 @@ def get_ballots(fname: str, position_cols, candidates,
         # for each ballot:
         # MODIFY THESE IN ORDER TO HANDLE DIFFERENT FORMATS
         # for roles, edit the file in the config folder.
-        # finished = line[6]  # whether or not the submission was finished.
-        # studentnum = line[17]
         # extract votes for each position
         for position, column in position_cols:
             # for each position in each ballot:
@@ -295,8 +346,6 @@ def get_ballots(fname: str, position_cols, candidates,
             # generate a Ballot object.
             choices = line[int(column)].split(",")
             candidate_choices = []
-            # print("{}'s votes for {}:\n{}"
-            #      .format(studentnum, position, pos_ballot))
 
             if "Abstain" in choices:
                 continue
@@ -348,8 +397,7 @@ def get_candidates(fname: str,
         f.close()
     # election-relevant columns only start after column 18 and row 4.
 
-    candidates = {"Yes": Candidate("Yes", ("N/A",), Info("N/A", True, [])),
-                  "No": Candidate("No", ("N/A",), Info("N/A", True, []))}
+    candidates = {"Yes": Yes, "No": No}
 
     # candidates_by_pos = {}
 
@@ -438,7 +486,7 @@ def get_candidates(fname: str,
         emails = [c.info.email for c in relevant_candidates]
         joint_candidate = Candidate(
             joint_name, positions, Info(emails, True, terms),
-            True, relevant_candidates)
+            joint=True, joint_candidates=relevant_candidates)
         candidates.update({joint_name: joint_candidate})
         print("{} -> {}".format(joint_name, positions))
     print("... Candidate building done.")
