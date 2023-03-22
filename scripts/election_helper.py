@@ -31,6 +31,8 @@ import csv
 from typing import List
 from functools import reduce
 
+MAX_POSITIONS = 3  # by the constitution
+
 
 class Info:
     '''
@@ -117,10 +119,19 @@ class Candidate:
         return self.name == other.name
 
 
+class BigBallot:
+    '''
+    Megaballot representing a voter's entire form entry data,
+    with votes spanning multiple position elections.
+    '''
+
+
 class Ballot:
     """
     A ballot (vote) where the voter has ranked all, or just some, of the candidates.
     If a voter lists one candidate multiple times, a DuplicateCandidatesError is thrown.
+
+    For a single position election. Modified code from pyrankvote.
     """
 
     def __init__(self, ranked_candidates: List[Candidate]):
@@ -176,7 +187,18 @@ class PositionElection:
     ...
 
     Attributes:
-    
+    position : string
+        The name of the position being ran for
+    candidates : List[Candidate]
+        List of candidates running in this election
+    ballots : List[Ballot]
+        List of voter ballots for this position
+    evaluator_method : callable List[Candidate] List[Ballot] -> ElectionResults
+        The pyrankvote (or other) method for evaluating this election
+        Default of PFV.
+    seats : int
+        The number of seats available for this position (i.e. quartermaster
+        typically has multiple.)
     '''
     debug = True
 
@@ -193,8 +215,10 @@ class PositionElection:
         if PositionElection.debug:
             print(election_result)
         winners = election_result.get_winners()
-        print("The following people have won the position for {}:"
-              .format(self.position))
+        print("The following {} for {}:"
+              .format("people have won the positions" if seats != 1 else
+                      "person has won the position",
+                      self.position))
         print(winners)
         # generate names and emails
 
@@ -208,13 +232,65 @@ class PositionElection:
                   .format(candidate, self.position))
 
 
-MAX_POSITIONS = 3
+def get_bigballots(fname: str, position_cols,
+                   eligibility_checker=None) -> BigBallot:
+    '''
+    Reads a provided qualtrics csv to get the master database of voter ballots
+    to run the election off of.
+
+    Returns a list of eligible BigBallots.
+    ...
+
+    Arguments
+    ---------
+    fname : str
+        File path of the csv to read off of.
+
+    position_cols : list[tuple(int, str)]
+        List of election position names and their column numbers to read from.
+
+    eligibility_checker : callable (str -> Bool)
+        Optional function to check and filter voter eligiblity.
+        Input is a line of the CSV corresponding to a ballot submission.
+        It is highly recommended for this function to report why it
+        rejects a given ballot for transparency.
+
+    '''
+    print("Extracting ballots from file: {}"
+          .format(fname))
+    with open(fname, newline='', encoding='utf-8') as f:
+        reader = csv.reader(f, delimiter=',', quotechar='"',
+                            quoting=csv.QUOTE_MINIMAL)
+        data = list(reader)
+        f.close()
+
+    if eligibility_checker is not None:
+        print("\nEligiblity-checking function supplied, filtering...")
+        lines = filter(eligiblity_checker, data[3:])
+        print("...Done")
+    else:
+        print("\n No eligiblity-checking function supplied, using raw lines.")
+        lines = data[3:]
+
+    for line in lines:
+        # MODIFY THESE IN ORDER TO HANDLE DIFFERENT FORMATS
+        finished = line[6]  # whether or not the submission was finished.
+        studentnum = line[17]
+        # extract votes for each position
+        for position, column in position_cols:
+            pos_ballot = line[column].split(",")
+            print("{}'s votes for {}:\n{}"
+                .format(studentnum, position, pos_ballot))
 
 
 def get_candidates(fname: str,
-                   joint_candidates: List[tuple[List[str], List[str], str]] = []):
+                   joint_candidates:
+                   List[tuple[List[str], List[str], str]] = []
+                   ) -> dict[str: Candidate]:
     '''
-    Generates a list of candidates to run the election off of.
+    Generates a database of candidates to run the election off of.
+    Filters and processes eligible and joint candidates
+    Returns a dictionary of {name : Candidate}
     ...
 
     Arguments
@@ -229,6 +305,7 @@ def get_candidates(fname: str,
         <list of the positions they are jointly running for>,
         <name they are running together under in the VOTING form
         (i.e. "Bob X and Fred Y", "Team Rocket")>)
+
     '''
     print("Generating candidate list from list of nominees...")
     with open(fname, newline='', encoding='utf-8') as f:
@@ -241,6 +318,7 @@ def get_candidates(fname: str,
     candidates = {}
 
     for line in data[3:]:
+        # MODIFY THESE TO HANDLE DIFFERENT FORMATS
         surname, firstname = line[9:11]
         name = firstname + " " + surname
         email = line[11]
@@ -312,7 +390,7 @@ def get_candidates(fname: str,
                       .format(name))
                 return None
 
-        relevant_candidates = filter(lambda x: x != None,
+        relevant_candidates = filter(lambda x: x is not None,
                                      [find_cand(i) for i in candidate_names])
         terms = np.unique(reduce(lambda x, y: x + y,
                                  [c.info.terms for c in relevant_candidates]))
