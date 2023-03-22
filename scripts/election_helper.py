@@ -31,7 +31,7 @@ import numpy as np
 import csv
 from typing import List
 from functools import reduce
-from position_table import columns as pos_columns
+import copy
 
 MAX_POSITIONS = 3  # by the constitution
 
@@ -336,6 +336,8 @@ def get_candidates(fname: str, joint_candidates: List[tuple[List[str], List[str]
     candidates = {"Yes": Candidate("Yes", ("N/A",), Info("N/A", True, [])),
                   "No": Candidate("No", ("N/A",), Info("N/A", True, []))}
 
+    # candidates_by_pos = {}
+
     for line in data[3:]:
         # MODIFY THESE TO HANDLE DIFFERENT FORMATS
         surname, firstname = line[9:11]
@@ -391,7 +393,7 @@ def get_candidates(fname: str, joint_candidates: List[tuple[List[str], List[str]
                 {name: Candidate(name, positions, info)})
 
     print("{} total candidates.".format(len(candidates)))
-    print("handling known pairs of candidates:")
+    print("Handling known pairs of candidates:")
     print(joint_candidates)
     for joint in joint_candidates:
         candidate_names = joint[0]
@@ -407,13 +409,15 @@ def get_candidates(fname: str, joint_candidates: List[tuple[List[str], List[str]
                 print("{} not found in list of candidates (could mean they didn't apply for other positions)"
                       .format(name))
                 return None
-
-        relevant_candidates = filter(lambda x: x is not None,
-                                     [find_cand(i) for i in candidate_names])
+        relevant_candidates = list(filter(lambda x: x is not None,
+                                     list([find_cand(i) for i in candidate_names])))
         terms = np.unique(reduce(lambda x, y: x + y,
                                  [c.info.terms for c in relevant_candidates]))
+        print(terms)
         for can in relevant_candidates:
+            print(can)
             for position in positions:
+                print(position)
                 can.positions.remove(position)
         emails = [c.info.email for c in relevant_candidates]
         joint_candidate = Candidate(
@@ -424,21 +428,3 @@ def get_candidates(fname: str, joint_candidates: List[tuple[List[str], List[str]
     print("... Candidate building done.")
 
     return candidates
-
-
-if __name__ == "__main__":
-    j = [(["Kevin McKay", "Meg Slot"], ["Membership Chair"], "Kevin McKay and Megan Slot"),
-         (["Zac Wirth", "Allen Zhao"], ["Trips Coordinator"], "Zac Wirth and Allen Zhao")]
-    candidates = get_candidates("../data/Nominee_March 15, 2023_13.03.csv",
-                                joint_candidates=j)
-
-    def is_eligible(line):
-        studentnum = line[17]
-        if line[6] == "TRUE":  # check to see if survey was finished
-            return True
-        else:
-            print("Rejected {}'s ballot: incomplete".format(studentnum))
-            return False
-
-    get_ballots("../data/TEST VOC Exec Election 2023.csv", pos_columns,
-                candidates, is_eligible)
