@@ -34,6 +34,9 @@ from functools import reduce
 import copy
 
 MAX_POSITIONS = 3  # by the constitution
+# row at which to start reading data, use to bypass testing entries/headers
+CANDIDATE_START_ROW = 9
+VOTING_START_ROW = 3
 
 
 class Info:
@@ -228,6 +231,11 @@ class PositionElection:
             print("{} removed from {} election and ballots"
                   .format(candidate, self.position))
 
+    def __str__(self):
+        return ("===Election for {}===\n".format(self.position)
+                + "Candidates: {}\n".format([str(c) for c in self.candidates])
+                + "{} Ballots".format(len(self.ballots)))
+
 
 def get_ballots(fname: str, position_cols, candidates,
                 eligibility_checker=None) -> dict[str, List[Ballot]]:
@@ -271,7 +279,7 @@ def get_ballots(fname: str, position_cols, candidates,
         print("...Done")
     else:
         print("\n No eligiblity-checking function supplied, using raw lines.")
-        lines = data[3:]
+        lines = data[VOTING_START_ROW:]
 
     print("Building ballot database:")
     for line in lines:
@@ -304,7 +312,10 @@ def get_ballots(fname: str, position_cols, candidates,
     return master_ballots
 
 
-def get_candidates(fname: str, joint_candidates: List[tuple[List[str], List[str], str]] = []) -> dict[str: Candidate]:
+def get_candidates(fname: str,
+                   joint_candidates: List[tuple[List[str],
+                                                List[str], str]] = [],
+                   nts: dict[str: str] = {}) -> dict[str: Candidate]:
     '''
     Generates a database of candidates to run the election off of.
     Filters and processes eligible and joint candidates
@@ -323,6 +334,10 @@ def get_candidates(fname: str, joint_candidates: List[tuple[List[str], List[str]
         <list of the positions they are jointly running for>,
         <name they are running together under in the VOTING form
         (i.e. "Bob X and Fred Y", "Team Rocket")>)
+    nts
+        Dictionary of position names (key) to replace with (value).
+        Used to handle inconsistent position naming between applicant
+        and election csv files.
 
     '''
     print("Generating candidate list from list of nominees...")
@@ -338,7 +353,7 @@ def get_candidates(fname: str, joint_candidates: List[tuple[List[str], List[str]
 
     # candidates_by_pos = {}
 
-    for line in data[3:]:
+    for line in data[CANDIDATE_START_ROW:]:
         # MODIFY THESE TO HANDLE DIFFERENT FORMATS
         surname, firstname = line[9:11]
         name = firstname + " " + surname
@@ -371,6 +386,10 @@ def get_candidates(fname: str, joint_candidates: List[tuple[List[str], List[str]
         info = Info(email, status, terms)
         # limit number of positions people are running for to 3
         positions = line[19].split(",")[:MAX_POSITIONS]
+        # for dealing with inconsistent position names between files
+        for ind, position in enumerate(positions):
+            if position in nts.keys():
+                positions[ind] = nts[position]
         changed = False
         if name in candidates.keys():
             print("\n{} has submitted multiple applications."
@@ -410,14 +429,11 @@ def get_candidates(fname: str, joint_candidates: List[tuple[List[str], List[str]
                       .format(name))
                 return None
         relevant_candidates = list(filter(lambda x: x is not None,
-                                     list([find_cand(i) for i in candidate_names])))
+                                          list([find_cand(i) for i in candidate_names])))
         terms = np.unique(reduce(lambda x, y: x + y,
                                  [c.info.terms for c in relevant_candidates]))
-        print(terms)
         for can in relevant_candidates:
-            print(can)
             for position in positions:
-                print(position)
                 can.positions.remove(position)
         emails = [c.info.email for c in relevant_candidates]
         joint_candidate = Candidate(
