@@ -26,10 +26,12 @@ position election they are running in.
 '''
 
 import pyrankvote
+from pyrankvote.models import DuplicateCandidatesError
 import numpy as np
 import csv
 from typing import List
 from functools import reduce
+from position_table import columns as pos_columns
 
 MAX_POSITIONS = 3  # by the constitution
 
@@ -48,7 +50,7 @@ class Info:
         will_be_student : bool
             Whether or not the student will be a student throughout their term
             Determines eligibility.
-        available terms : bool
+        available terms : Tuple[Int, Int]
             The terms the candidate will be at UBC for.
             Not explicity using this to determine eligbility because this is more
             case-by-case?
@@ -83,7 +85,7 @@ class Info:
     def __eq__(self, other) -> bool:
         if other is None:
             return False
-        if type(other) == str:
+        if isinstance(other, str):
             return self.__str__() == other
 
         return self.__str__() == other.__str__()
@@ -93,7 +95,8 @@ class Candidate:
     """A candidate in the election."""
 
     def __init__(self, name: str, positions: tuple[str], info: Info,
-                 joint: bool = False, joint_candidates: List["Candidate"] = []):
+                 joint: bool = False,
+                 joint_candidates: List["Candidate"] = []):
         self.name = name
         self.info = info
         self.joint = joint
@@ -113,17 +116,10 @@ class Candidate:
     def __eq__(self, other) -> bool:
         if other is None:
             return False
-        if type(other) == str:
+        if isinstance(other, str):
             return self.name == other
 
         return self.name == other.name
-
-
-class BigBallot:
-    '''
-    Megaballot representing a voter's entire form entry data,
-    with votes spanning multiple position elections.
-    '''
 
 
 class Ballot:
@@ -216,7 +212,8 @@ class PositionElection:
             print(election_result)
         winners = election_result.get_winners()
         print("The following {} for {}:"
-              .format("people have won the positions" if seats != 1 else
+              .format("people have won the positions"
+                      if self.seats != 1 else
                       "person has won the position",
                       self.position))
         print(winners)
@@ -232,13 +229,13 @@ class PositionElection:
                   .format(candidate, self.position))
 
 
-def get_bigballots(fname: str, position_cols,
-                   eligibility_checker=None) -> BigBallot:
+def get_ballots(fname: str, position_cols, candidates,
+                eligibility_checker=None) -> dict[str, List[Ballot]]:
     '''
     Reads a provided qualtrics csv to get the master database of voter ballots
     to run the election off of.
 
-    Returns a list of eligible BigBallots.
+    Returns a dictionary of positions with a list of their respective ballots
     ...
 
     Arguments
@@ -249,6 +246,9 @@ def get_bigballots(fname: str, position_cols,
     position_cols : list[tuple(int, str)]
         List of election position names and their column numbers to read from.
 
+    candidates : dict{name : Candidate}
+        Reference list of candidates to build ballots with
+
     eligibility_checker : callable (str -> Bool)
         Optional function to check and filter voter eligiblity.
         Input is a line of the CSV corresponding to a ballot submission.
@@ -256,7 +256,8 @@ def get_bigballots(fname: str, position_cols,
         rejects a given ballot for transparency.
 
     '''
-    print("Extracting ballots from file: {}"
+    master_ballots = {}
+    print("\nExtracting ballots from file: {}"
           .format(fname))
     with open(fname, newline='', encoding='utf-8') as f:
         reader = csv.reader(f, delimiter=',', quotechar='"',
@@ -266,27 +267,44 @@ def get_bigballots(fname: str, position_cols,
 
     if eligibility_checker is not None:
         print("\nEligiblity-checking function supplied, filtering...")
-        lines = filter(eligiblity_checker, data[3:])
+        lines = list(filter(eligibility_checker, data[3:]))
         print("...Done")
     else:
         print("\n No eligiblity-checking function supplied, using raw lines.")
         lines = data[3:]
 
+    print("Building ballot database:")
     for line in lines:
+        # for each ballot:
         # MODIFY THESE IN ORDER TO HANDLE DIFFERENT FORMATS
-        finished = line[6]  # whether or not the submission was finished.
-        studentnum = line[17]
+        # for roles, edit the file in the config folder.
+        # finished = line[6]  # whether or not the submission was finished.
+        # studentnum = line[17]
         # extract votes for each position
         for position, column in position_cols:
-            pos_ballot = line[column].split(",")
-            print("{}'s votes for {}:\n{}"
-                .format(studentnum, position, pos_ballot))
+            # for each position in each ballot:
+            # get ordered list of names in ranked order
+            # generate a Ballot object.
+            choices = line[int(column)].split(",")
+            candidate_choices = []
+            # print("{}'s votes for {}:\n{}"
+            #      .format(studentnum, position, pos_ballot))
+
+            if "Abstain" in choices:
+                continue
+            else:
+                for choice in choices:
+                    candidate_choices.append(candidates[choice])
+            pos_ballot = Ballot(candidate_choices)
+            if position not in master_ballots.keys():
+                master_ballots.update({position: [pos_ballot]})
+            else:
+                master_ballots[position].append(pos_ballot)
+    print("...Ballot extraction done.")
+    return master_ballots
 
 
-def get_candidates(fname: str,
-                   joint_candidates:
-                   List[tuple[List[str], List[str], str]] = []
-                   ) -> dict[str: Candidate]:
+def get_candidates(fname: str, joint_candidates: List[tuple[List[str], List[str], str]] = []) -> dict[str: Candidate]:
     '''
     Generates a database of candidates to run the election off of.
     Filters and processes eligible and joint candidates
@@ -315,7 +333,8 @@ def get_candidates(fname: str,
         f.close()
     # election-relevant columns only start after column 18 and row 4.
 
-    candidates = {}
+    candidates = {"Yes": Candidate("Yes", ("N/A",), Info("N/A", True, [])),
+                  "No": Candidate("No", ("N/A",), Info("N/A", True, []))}
 
     for line in data[3:]:
         # MODIFY THESE TO HANDLE DIFFERENT FORMATS
@@ -370,8 +389,7 @@ def get_candidates(fname: str,
         else:
             candidates.update(
                 {name: Candidate(name, positions, info)})
-        # candidates.append(
-        #    Candidate(name, positions, Info(email, status, terms)))
+
     print("{} total candidates.".format(len(candidates)))
     print("handling known pairs of candidates:")
     print(joint_candidates)
@@ -399,7 +417,8 @@ def get_candidates(fname: str,
                 can.positions.remove(position)
         emails = [c.info.email for c in relevant_candidates]
         joint_candidate = Candidate(
-            joint_name, positions, Info(emails, True, terms))
+            joint_name, positions, Info(emails, True, terms),
+            True, relevant_candidates)
         candidates.update({joint_name: joint_candidate})
         print("{} -> {}".format(joint_name, positions))
     print("... Candidate building done.")
@@ -410,5 +429,16 @@ def get_candidates(fname: str,
 if __name__ == "__main__":
     j = [(["Kevin McKay", "Meg Slot"], ["Membership Chair"], "Kevin McKay and Megan Slot"),
          (["Zac Wirth", "Allen Zhao"], ["Trips Coordinator"], "Zac Wirth and Allen Zhao")]
-    get_candidates("../data/Nominee_March 15, 2023_13.03.csv",
-                   joint_candidates=j)
+    candidates = get_candidates("../data/Nominee_March 15, 2023_13.03.csv",
+                                joint_candidates=j)
+
+    def is_eligible(line):
+        studentnum = line[17]
+        if line[6] == "TRUE":  # check to see if survey was finished
+            return True
+        else:
+            print("Rejected {}'s ballot: incomplete".format(studentnum))
+            return False
+
+    get_ballots("../data/TEST VOC Exec Election 2023.csv", pos_columns,
+                candidates, is_eligible)
