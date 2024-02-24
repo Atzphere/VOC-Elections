@@ -20,16 +20,14 @@ RAW_VOTING_OFFSET = -18  # offset the column designations in VOTING.csv.
 
 # write in joint candidates here
 
-joints = [
-    (["Kevin McKay", "Meg Slot"], ["Membership Chair"], "Kevin McKay and Megan Slot"),
-    (["Zac Wirth", "Allen Zhao"], ["Trips Coordinator"], "Zac Wirth and Allen Zhao")]
+joints = [(["Homer Simpson", "Lenny Leonard"], ["Donut Coordinator"], "Homer Simpson and Lenny Leonard")]
 
 elec_with_multi_seats = {"Quartermaster": 5}
 
 # Add people who aren't on the candidate form but are on the
 # election here.
-fill_ins = [election_helper.Candidate("Settare Shariati", ["Public Relations"],
-                                      election_helper.Info("settare@zoology.ubc.ca", True, [1, 2]))]
+fill_ins = [election_helper.Candidate("Monty Burns", ["Director"],
+                                      election_helper.Info("burns@springfieldpower.com", True, [1, 2]))]
 
 # put naming discrepancies between the candidate form and election form here
 # {<old>: <new>}
