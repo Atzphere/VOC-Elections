@@ -5,22 +5,38 @@ from election_helper import PositionElection
 from position_table import columns as pos_columns
 from copy import copy
 
+# CONFIGURABLES
+
+CANDIDACY_FILE = "../data/exec-nominees-2023-final.csv"
+BALLOT_FILE = "../data/exec-votes-2023.csv"
+
 election_helper.MAX_POSITIONS = 3
-election_helper.CANDIDATE_START_ROW = 9
+election_helper.CANDIDATE_START_ROW = 2
 election_helper.VOTING_START_ROW = 3
 
-joints = [(["Kevin McKay", "Meg Slot"], ["Membership Chair"], "Kevin McKay and Megan Slot"),
-          (["Zac Wirth", "Allen Zhao"], ["Trips Coordinator"], "Zac Wirth and Allen Zhao")]
+# if someone has already gone through and checked eligibility and all you have is raw vote data, use this.
+USE_RAW_VOTING_INFO = True
+RAW_VOTING_OFFSET = -18  # offset the column designations in VOTING.csv.
+
+# write in joint candidates here
+
+joints = [
+    (["Kevin McKay", "Meg Slot"], ["Membership Chair"], "Kevin McKay and Megan Slot"),
+    (["Zac Wirth", "Allen Zhao"], ["Trips Coordinator"], "Zac Wirth and Allen Zhao")]
 
 elec_with_multi_seats = {"Quartermaster": 5}
 
-# Add people who aren't on the position application form but are on the
+# Add people who aren't on the candidate form but are on the
 # election here.
 fill_ins = [election_helper.Candidate("Settare Shariati", ["Public Relations"],
                                       election_helper.Info("settare@zoology.ubc.ca", True, [1, 2]))]
 
+# put naming discrepancies between the candidate form and election form here
 # {<old>: <new>}
 names_to_change = {"FMCBC/ACC Rep": "FMCBC/ACC Representative"}
+
+
+# END CONFIGURABLES
 
 
 def is_eligible(line):
@@ -28,17 +44,25 @@ def is_eligible(line):
     if line[6] == "TRUE":  # check to see if survey was finished
         return True
     else:
-        print("Rejected {}'s ballot: incomplete".format(studentnum))
+        print(f"Rejected {studentnum}'s ballot: incomplete")
         return False
 
 
-candidates = get_candidates("../data/Nominee_March 15, 2023_13.03.csv",
+candidates = get_candidates(CANDIDACY_FILE,
                             joint_candidates=joints, nts=names_to_change)
+
+joint_candidates = filter(lambda x: x.joint, candidates.values())
 for fill_in in fill_ins:
     candidates.update({fill_in.name: fill_in})
 
-ballots = get_ballots("../data/TEST VOC Exec Election 2023.csv", pos_columns,
-                      candidates, is_eligible)
+if USE_RAW_VOTING_INFO:
+    shifted_pos_columns = [
+        [n[0], int(n[1]) + RAW_VOTING_OFFSET] for n in pos_columns]
+    ballots = get_ballots(BALLOT_FILE, shifted_pos_columns,
+                          candidates)
+else:
+    ballots = get_ballots(BALLOT_FILE, pos_columns,
+                          candidates, is_eligible)
 
 # build dictionary of positions and their candidiates
 candidates_by_pos = {}
@@ -70,6 +94,15 @@ for position in ballots.keys():
     elections.append(elec)
 print("...done")
 
+
+def find_corresponding_joints(candidate, joints):
+    matches = []
+    for j in joints:
+        if candidate in j.joint_candidates:
+            matches.append(j)
+    return matches
+
+
 all_elections = copy(elections)
 complete = False
 iteration = 1
@@ -79,8 +112,8 @@ problems = []
 while not filter_priority > 3:
     no_new_winners = False
     while not (no_new_winners or filter_priority > 3):
-        print("Running all elections... (iteration {}, ranking threshold {})"
-              .format(iteration, filter_priority))
+        print(
+            f"Running all elections... (iteration {iteration}, ranking threshold {filter_priority})")
         # for each cycle:
         # build a list of winners, including what they won and their rankings
         cycle_winners = {}
@@ -98,7 +131,7 @@ while not filter_priority > 3:
                 reasons.append("no candidates")
                 continue
 
-            for winner, ranking in result:
+            for winner, ranking in result:  # add them to cycle winners
                 if winner not in cycle_winners.keys():
                     cycle_winners.update({winner: ([election], [ranking])})
                 else:
@@ -113,19 +146,32 @@ while not filter_priority > 3:
         print("\n Computing true winners...")
         for candidate, wins, in cycle_winners.items():
             won_elecs, rankings = wins
-            if filter_priority in rankings or (len(won_elecs) == 1 and len(won_elecs[0].candidates) == 1):
-                if len(won_elecs) == 1:
+            if filter_priority in rankings or (len(won_elecs) == 1 or len(won_elecs[0].candidates) == 1):
+                if len(candidate.part_of_joints) > 0:
+                    print("JOINTAX:", candidate)
+                    # if the joint candidate won something, give them that instead (prioritize not breaking joints)
+                    joints = candidate.part_of_joints
+                    won_anything = False
+                    for j in joints:
+                        if j in cycle_winners.keys():
+                            won_anything = True
+                    if won_anything:
+                        continue
+                if len(won_elecs) == 1:  # if they only won one election, they get that role
                     won_election = won_elecs[0]
-                    print("\n (FORCED) {} won {} as their #{} choice (final)..."
-                          .format(candidate.name,
-                                  won_election.position, rankings[0]))
-                else:
+                    print(
+                        f"\n (FORCED) {candidate.name} only won {won_election.position} as their #{rankings[0]} choice (final)...")
+
+                elif len(won_elecs[0].candidates) == 1:
+                    won_election = won_elecs[0]
+                    print(
+                        f"\n {candidate.name} won {won_election.position} as their #{rankings[0]} choice (final). They were the only person left...")
+
+                elif filter_priority in rankings:
                     won_election = won_elecs[rankings.index(filter_priority)]
-                    print("\n{} won {} as their #{} choice (final)..."
-                          .format(candidate.name,
-                                  won_election.position, filter_priority))
+                    print(
+                        f"\n{candidate.name} won {won_election.position} as their #{filter_priority} choice (final)...")
                 won_election.final_winners.append(candidate)
-                print(candidate.name)
                 # if this person ran in other elections, remove them from them.
                 # or if they are a joint candidate (joint object not represnttive)
                 if len(candidate.positions) > 1 or candidate.joint:
@@ -139,6 +185,8 @@ while not filter_priority > 3:
                                 election.remove_candidate(candidate)
                 else:
                     print("This was their only election.")
+            else:
+                print(f"{candidate} was dropped")
         print("\n")
         for election in all_elections:
             print("{}: {}/{} seats filled.".format(
@@ -174,8 +222,10 @@ for election in all_elections:
                   .format(winner,
                           winner.info.email))
         if len(winners) > election.seats:
-            print("\n (More than {} seats filled due to a tie somewhere in the voting.)"
-                .format(election.seats))
+            print(f"\n(More than {election.seats} seats filled due to a tie somewhere in the voting. or pyrankvote being dumb.")
+            print("Fiddle with the maximum number of positions or take a look at raw vote counts)")
+
+
 
 if len(problems) != 0:
     print("\n===ELECTION ISSUES===")

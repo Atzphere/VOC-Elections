@@ -1,41 +1,15 @@
-'''
-Each ballot (line in the csv) will have the voter's ranked choices for each
-role in the following format:
-
-"<position>_0_GROUP" i.e. president, etc. as the column,
-<list of names in order of preference>
-
-I.e. under President_0_GROUP, Fred has voted in a way that leaves this entry:
-"Jared, Bob, Dylan, Bill"
-
-Jared was their highest-voted candidate.
-
-We first need to figure out who is running for what and build a list of nominees
-that can be referenced using their names i.e. via a dictionary. Do this via the nominee form?
-    Each nominee will have their name, contact info, + tagged vote counters for what positions
-    they are running for - this will also have to be extracted from the nom. form.
-    Desired positions will be ranked by priority.
-
-In the voting form, we will individually run ranked choice for each position. (STV?)
-Because of this, each candidate will need a different pyrankvote Candidate object for each
-position election they are running in.
-
-- Possibly have to handle inconsistencies between nominee forms and election stuff?
-
-
-'''
-
 import pyrankvote
 from pyrankvote.models import DuplicateCandidatesError
 import numpy as np
 import csv
-from typing import List
+from typing import List, Generator, Callable
 from functools import reduce
 import copy
 
 MAX_POSITIONS = 3  # by the constitution
 # row at which to start reading data, use to bypass testing entries/headers
-CANDIDATE_START_ROW = 9
+# These are defaults, and can/will be reconfigured from the elections.py file
+CANDIDATE_START_ROW = 2
 VOTING_START_ROW = 3
 
 
@@ -65,7 +39,7 @@ class Info:
     '''
     terms = [1, 2]
 
-    def __init__(self, email, will_be_student, available_terms):
+    def __init__(self, email, will_be_student, available_terms) -> None:
         self.email = email
         self.will_be_student = will_be_student
         self.available_terms = available_terms
@@ -82,10 +56,10 @@ class Info:
             e = "not eligible"
         aterms = [i for indx, i in enumerate(
             Info.terms) if self.available_terms[indx]]
-        return ("Email: {}. Will {}be a student. Available in terms: {}, {}."
-                .format(self.email, stud, aterms, e))
+        return (f"Email: {self.email}. Will {stud}be a student. Available in terms: {aterms}, {e}.")
 
     def __eq__(self, other) -> bool:
+        # equality on matching status strings
         if other is None:
             return False
         if isinstance(other, str):
@@ -95,14 +69,38 @@ class Info:
 
 
 class Candidate:
-    """A candidate in the election."""
+    """
+    A candidate in the election. The majority of the methods in this class
+    are here as a part of the pyrankvote package's requirements.
+
+    Attributes
+    ----------
+        name : str
+            The candidate's name. This is actually fairly important, as it is
+            used to do dictionary lookups when running elections. Candidate
+            names should corroborate between nominations and ballots.
+        info : Info
+            Info instance for contact details, etc.
+        joint : bool
+            Whether or not the candidate is a joint candidate. These are
+            finnicky and need their own logic. Joint candidates have to
+            be filled in manually in the joint_candidates csv file. with their
+        part_of_joints : List[Candidate]
+            Joint candidacies the candidate is a part of.
+            affiliated individual candidates.
+        positions : tuple[str]
+            Tuple of positions the candidate is running for. Like their name,
+            this has to be consistent between nominations and ballots.
+
+    """
 
     def __init__(self, name: str, positions: tuple[str], info: Info,
-                 joint: bool = False,
-                 joint_candidates: List["Candidate"] = []):
+                 joint: bool = False, part_of_joints: List["Candidate"] = [],
+                 joint_candidates: List["Candidate"] = []) -> None:
         self.name = name
         self.info = info
         self.joint = joint
+        self.part_of_joints = part_of_joints
         self.positions = positions
         if joint:
             self.joint_candidates = joint_candidates
@@ -124,8 +122,10 @@ class Candidate:
 
         return self.name == other.name
 
+# Custom candidates for cases of single-candidate elections (i.e. do you approve of X?)
 Yes = Candidate("Yes", ("N/A",), Info("N/A", True, []))
 No = Candidate("No", ("N/A",), Info("N/A", True, []))
+
 
 class Ballot:
     """
@@ -133,9 +133,10 @@ class Ballot:
     If a voter lists one candidate multiple times, a DuplicateCandidatesError is thrown.
 
     For a single position election. Modified code from pyrankvote.
+
     """
 
-    def __init__(self, ranked_candidates: List[Candidate]):
+    def __init__(self, ranked_candidates: List[Candidate]) -> None:
         self.ranked_candidates: List[Candidate] = ranked_candidates
 
         if Ballot._is_duplicates(ranked_candidates):
@@ -204,9 +205,10 @@ class PositionElection:
 
     debug = False
 
-    def __init__(self, position, candidates, ballots,
-                 evaluator_method=pyrankvote.preferential_block_voting,
-                 seats=1):
+    def __init__(self, position: str, candidates: List[Candidate], ballots: List[Ballot],
+                 evaluator_method: Callable[[List[Candidate], List[Ballot], int], pyrankvote.helpers.ElectionResults]
+                  = pyrankvote.preferential_block_voting,
+                 seats=1) -> None:
         self.position = position
         self.candidates = candidates
         self.starting = copy.copy(self.candidates)
@@ -216,7 +218,11 @@ class PositionElection:
         self.final_winners = []
         self.lastwinner = None
 
-    def compute_winners(self):
+    def compute_winners(self) -> zip:
+        '''
+            Compute the winners of a position election iteration.
+            Results aren't necessarily final.
+        '''            
         if len(self.candidates) == 0:
             print("\nNo one is running for {} anymore! :("
                   .format(self.position))
@@ -244,7 +250,8 @@ class PositionElection:
                       .format(sole_candidate.name, self.position))
                 print("Their ranking for this role is #{}".format(ranking))
                 self.lastwinner = sole_candidate
-                return zip([self.candidates[0]], [ranking])
+                result: zip[Candidate, int] = zip([self.candidates[0]], [ranking])
+                return result
 
             if tracker < 0:  # god forbid
                 print("\n{} did not win {} (only candidate in role, not enough yes votes)."
@@ -271,7 +278,11 @@ class PositionElection:
 
         # generate names and emails
 
-    def remove_candidate(self, candidate):
+    def remove_candidate(self, candidate: Candidate) -> None:
+        '''
+            Removes a candidate from the election. Useful if they won
+            a different role. 
+        '''
         if candidate in self.candidates:
             self.candidates.remove(candidate)
             for ballot in self.ballots:
@@ -280,7 +291,7 @@ class PositionElection:
             print("{} removed from {} election and ballots"
                   .format(candidate, self.position))
 
-    def __str__(self):
+    def __str__(self) -> str:
         return ("===~Election for {}~===\n".format(self.position)
                 + "Candidates: {}\n".format([str(c) for c in self.candidates])
                 + "{} Ballots\n".format(len(self.ballots))
@@ -328,10 +339,10 @@ def get_ballots(fname: str, position_cols, candidates,
 
     if eligibility_checker is not None:
         print("\nEligiblity-checking function supplied, filtering...")
-        lines = list(filter(eligibility_checker, data[3:]))
+        lines = list(filter(eligibility_checker, data[VOTING_START_ROW:]))
         print("...Done")
     else:
-        print("\n No eligiblity-checking function supplied, using raw lines.")
+        print("\nNo eligiblity-checking function supplied, using raw lines.")
         lines = data[VOTING_START_ROW:]
 
     print("Building ballot database:")
@@ -344,20 +355,25 @@ def get_ballots(fname: str, position_cols, candidates,
             # for each position in each ballot:
             # get ordered list of names in ranked order
             # generate a Ballot object.
+            # choices should be a list of names voted for.
+            column += -1
             choices = line[int(column)].split(",")
             candidate_choices = []
-
-            if "Abstain" in choices:
+            if "Abstain" in choices or "" in choices:
                 continue
             else:
                 for choice in choices:
-                    candidate_choices.append(candidates[choice])
+                    try:
+                        candidate_choices.append(candidates[choice])
+                    except KeyError:
+                        print(f"Invalid candidate pulled with {position} at column {column} ({choice})")
+                        exit()
             pos_ballot = Ballot(candidate_choices)
             if position not in master_ballots.keys():
                 master_ballots.update({position: [pos_ballot]})
             else:
                 master_ballots[position].append(pos_ballot)
-    print("...Ballot extraction done.")
+    print(f"...Ballot extraction done. {len(master_ballots)} people voted!")
     return master_ballots
 
 
@@ -398,19 +414,18 @@ def get_candidates(fname: str,
     # election-relevant columns only start after column 18 and row 4.
 
     candidates = {"Yes": Yes, "No": No}
-
-    # candidates_by_pos = {}
-
     for line in data[CANDIDATE_START_ROW:]:
         # MODIFY THESE TO HANDLE DIFFERENT FORMATS
         surname, firstname = line[9:11]
         name = firstname + " " + surname
         email = line[11]
-        status = line[17]
+        status = line[17]  # will they be a student
         cand_type = line[2]
+        roles = line[19]  # what they're running for
+        terms = line[18].split(",")  # what terms they're available for
 
         if cand_type == "Survey Preview":
-            print("Discarded {}, was survey preview".format(name))
+            print(f"Discarded {name}, was survey preview")
             continue
 
         if status == "Yes":
@@ -418,39 +433,34 @@ def get_candidates(fname: str,
         else:
             status = False
 
-        terms = line[18].split(",")
         for ind, term in enumerate(terms):
             if term in ["Term 1", "Term 2"]:
                 terms[ind] = True
             else:
                 terms[ind] = False
-        if line[19] == '':
-            print("\nApplication for {} discarded due to no roles"
-                  .format(name),
-                  "(is a student: {}, email: {})"
-                  .format(status, email))
+        if roles == '':
+            print(f"\nApplication for {name} discarded due to no roles",
+                  f"(is a student: {status}, email: {email})")
             continue
 
         info = Info(email, status, terms)
         # limit number of positions people are running for to 3
-        positions = line[19].split(",")[:MAX_POSITIONS]
+        positions = roles.split(",")[:MAX_POSITIONS]
         # for dealing with inconsistent position names between files
         for ind, position in enumerate(positions):
             if position in nts.keys():
                 positions[ind] = nts[position]
         changed = False
         if name in candidates.keys():
-            print("\n{} has submitted multiple applications."
-                  .format(name))
+            print(f"\n{name} has submitted multiple applications.")
             if (candidates[name].positions != positions):
                 print("Different positions in new application, using these")
-                print(
-                    "({} -> {})".format(candidates[name].positions, positions))
+                print(f"({candidates[name].positions} -> {positions})")
                 candidates[name].positions = positions
                 changed = True
             if (candidates[name].info != info):
                 print("Different info in new application, using this")
-                print("({} -> {})".format(candidates[name].info, info))
+                print(f"({candidates[name].info} -> {info})")
                 candidates[name].info = info
                 changed = True
             if not changed:
@@ -459,36 +469,40 @@ def get_candidates(fname: str,
             candidates.update(
                 {name: Candidate(name, positions, info)})
 
-    print("{} total candidates.".format(len(candidates)))
+    print(f"{len(candidates)} total candidates.")
+    # handle joint candidates, needs some tricky logic if they run for other different things individually
     print("Handling known pairs of candidates:")
     print(joint_candidates)
     for joint in joint_candidates:
         candidate_names = joint[0]
         positions = joint[1]
         joint_name = joint[2]
-        print("\nHandling {}"
-              .format(joint_name))
+        print(f"\nHandling {joint_name}")
 
         def find_cand(name):
             try:
                 return candidates[name]
             except KeyError:
-                print("{} not found in list of candidates (could mean they didn't apply for other positions)"
-                      .format(name))
+                print(
+                    f"{name} not found individually in list of candidates (could mean they didn't apply for other positions)")
                 return None
         relevant_candidates = list(filter(lambda x: x is not None,
                                           list([find_cand(i) for i in candidate_names])))
-        terms = np.unique(reduce(lambda x, y: x + y,
+        # if len(relevant_candidates == 0):
+        #    print(f"Treating {joint_name} as a single candidate as neither constituent ran for other things")
+        #    continue
+        terms = np.unique(reduce(lambda x, y: x + y,  # treat the joint candidacy's availability as the sum of their combined availabilities
                                  [c.info.terms for c in relevant_candidates]))
-        for can in relevant_candidates:
-            for position in positions:
-                can.positions.remove(position)
         emails = [c.info.email for c in relevant_candidates]
         joint_candidate = Candidate(
             joint_name, positions, Info(emails, True, terms),
             joint=True, joint_candidates=relevant_candidates)
+        for can in relevant_candidates:  # remove the joint candidacy's positions from each individual candidate
+            can.part_of_joints = [joint_candidate]
+            for position in positions:
+                can.positions[can.positions.index(position)] = "DUMMY"
         candidates.update({joint_name: joint_candidate})
-        print("{} -> {}".format(joint_name, positions))
+        print(f"{joint_name} -> {positions}")
     print("... Candidate building done.")
 
     return candidates
