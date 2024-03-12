@@ -367,6 +367,8 @@ def get_ballots(fname: str, position_cols, candidates,
                         candidate_choices.append(candidates[choice])
                     except KeyError:
                         print(f"Invalid candidate pulled with {position} at column {column} ({choice})")
+                        print("If this is a joint candidacy, double check that they're acknowledged in the list of joints in elections.py")
+                        print("Ballot database construction failed, aborting...")
                         exit()
             pos_ballot = Ballot(candidate_choices)
             if position not in master_ballots.keys():
@@ -488,9 +490,9 @@ def get_candidates(fname: str,
                 return None
         relevant_candidates = list(filter(lambda x: x is not None,
                                           list([find_cand(i) for i in candidate_names])))
-        # if len(relevant_candidates == 0):
-        #    print(f"Treating {joint_name} as a single candidate as neither constituent ran for other things")
-        #    continue
+        if len(relevant_candidates) == 0:
+            print(f"Skipping {joint_name} as there don't seem to be any constituent candidates in the database.")
+            continue
         terms = np.unique(reduce(lambda x, y: x + y,  # treat the joint candidacy's availability as the sum of their combined availabilities
                                  [c.info.terms for c in relevant_candidates]))
         emails = [c.info.email for c in relevant_candidates]

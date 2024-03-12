@@ -22,6 +22,8 @@ RAW_VOTING_OFFSET = -18  # offset the column designations in VOTING.csv.
 
 joints = [(["Homer Simpson", "Lenny Leonard"], ["Donut Coordinator"], "Homer Simpson and Lenny Leonard")]
 
+# elections with multiple seats, i.e. always quartermaster...
+
 elec_with_multi_seats = {"Quartermaster": 5}
 
 # Add people who aren't on the candidate form but are on the
@@ -34,12 +36,15 @@ fill_ins = [election_helper.Candidate("Monty Burns", ["Director"],
 names_to_change = {"FMCBC/ACC Rep": "FMCBC/ACC Representative"}
 
 
+FINISHED_SURVEY_COLUMN = 6
+STUDENTNUM_COLUMN = 17
+
 # END CONFIGURABLES
 
 
 def is_eligible(line):
-    studentnum = line[17]
-    if line[6] == "TRUE":  # check to see if survey was finished
+    studentnum = line[STUDENTNUM_COLUMN]
+    if line[FINISHED_SURVEY_COLUMN] == "TRUE":  # check to see if survey was finished
         return True
     else:
         print(f"Rejected {studentnum}'s ballot: incomplete")
