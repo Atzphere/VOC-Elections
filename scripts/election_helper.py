@@ -8,9 +8,21 @@ import copy
 
 MAX_POSITIONS = 3  # by the constitution
 # row at which to start reading data, use to bypass testing entries/headers
-# These are defaults, and can/will be reconfigured from the elections.py file
+
+
+# The following are defaults, and can/will be reconfigured from the elections.py file
 CANDIDATE_START_ROW = 2
 VOTING_START_ROW = 3
+
+
+# all of these columns need to be included or code-handwaved in the candidate CSV.
+SURNAME_COL = 9
+FIRSTNAME_COL = 11
+EMAIL_COL = 11
+STATUS_COL = 17
+CAND_TYPE_COL = 2
+ROLES_COL = 19
+TERMS_COL = 18
 
 
 class Info:
@@ -122,6 +134,7 @@ class Candidate:
 
         return self.name == other.name
 
+
 # Custom candidates for cases of single-candidate elections (i.e. do you approve of X?)
 Yes = Candidate("Yes", ("N/A",), Info("N/A", True, []))
 No = Candidate("No", ("N/A",), Info("N/A", True, []))
@@ -206,8 +219,9 @@ class PositionElection:
     debug = False
 
     def __init__(self, position: str, candidates: List[Candidate], ballots: List[Ballot],
-                 evaluator_method: Callable[[List[Candidate], List[Ballot], int], pyrankvote.helpers.ElectionResults]
-                  = pyrankvote.preferential_block_voting,
+                 evaluator_method: Callable[[
+                     List[Candidate], List[Ballot], int], pyrankvote.helpers.ElectionResults]
+                 = pyrankvote.preferential_block_voting,
                  seats=1) -> None:
         self.position = position
         self.candidates = candidates
@@ -222,7 +236,7 @@ class PositionElection:
         '''
             Compute the winners of a position election iteration.
             Results aren't necessarily final.
-        '''            
+        '''
         if len(self.candidates) == 0:
             print("\nNo one is running for {} anymore! :("
                   .format(self.position))
@@ -250,7 +264,8 @@ class PositionElection:
                       .format(sole_candidate.name, self.position))
                 print("Their ranking for this role is #{}".format(ranking))
                 self.lastwinner = sole_candidate
-                result: zip[Candidate, int] = zip([self.candidates[0]], [ranking])
+                result: zip[Candidate, int] = zip(
+                    [self.candidates[0]], [ranking])
                 return result
 
             if tracker < 0:  # god forbid
@@ -366,8 +381,10 @@ def get_ballots(fname: str, position_cols, candidates,
                     try:
                         candidate_choices.append(candidates[choice])
                     except KeyError:
-                        print(f"Invalid candidate pulled with {position} at column {column} ({choice})")
-                        print("If this is a joint candidacy, double check that they're acknowledged in the list of joints in elections.py")
+                        print(
+                            f"Invalid candidate pulled with {position} at column {column} ({choice})")
+                        print(
+                            "If this is a joint candidacy, double check that they're acknowledged in the list of joints in elections.py")
                         print("Ballot database construction failed, aborting...")
                         exit()
             pos_ballot = Ballot(candidate_choices)
@@ -414,17 +431,21 @@ def get_candidates(fname: str,
         data = list(reader)
         f.close()
     # election-relevant columns only start after column 18 and row 4.
-
+    # dummy candidate for yes/no/abstain single-candidate elections...
     candidates = {"Yes": Yes, "No": No}
     for line in data[CANDIDATE_START_ROW:]:
         # MODIFY THESE TO HANDLE DIFFERENT FORMATS
-        surname, firstname = line[9:11]
-        name = firstname + " " + surname
-        email = line[11]
-        status = line[17]  # will they be a student
-        cand_type = line[2]
-        roles = line[19]  # what they're running for
-        terms = line[18].split(",")  # what terms they're available for
+        surname, firstname = line[SURNAME_COL], line[FIRSTNAME_COL]
+        if firstname == "":  # fullname should be in surname in thie case
+            name = surname
+        else:
+            name = firstname + " " + surname
+        email = line[EMAIL_COL]
+        status = line[STATUS_COL]  # will they be a student?
+        # for validation in case the president is lazy
+        cand_type = line[CAND_TYPE_COL]
+        roles = line[ROLES_COL]  # what they're running for
+        terms = line[TERMS_COL].split(",")  # what terms they're available for
 
         if cand_type == "Survey Preview":
             print(f"Discarded {name}, was survey preview")
@@ -442,6 +463,10 @@ def get_candidates(fname: str,
                 terms[ind] = False
         if roles == '':
             print(f"\nApplication for {name} discarded due to no roles",
+                  f"(is a student: {status}, email: {email})")
+            continue
+        if not status:
+            print(f"\nApplication for {name} discarded as they're not a student",
                   f"(is a student: {status}, email: {email})")
             continue
 
@@ -471,7 +496,7 @@ def get_candidates(fname: str,
             candidates.update(
                 {name: Candidate(name, positions, info)})
 
-    print(f"{len(candidates)} total candidates.")
+    print(f"\n{len(candidates)} total candidates.")
     # handle joint candidates, needs some tricky logic if they run for other different things individually
     print("Handling known pairs of candidates:")
     print(joint_candidates)
@@ -491,7 +516,8 @@ def get_candidates(fname: str,
         relevant_candidates = list(filter(lambda x: x is not None,
                                           list([find_cand(i) for i in candidate_names])))
         if len(relevant_candidates) == 0:
-            print(f"Skipping {joint_name} as there don't seem to be any constituent candidates in the database.")
+            print(
+                f"Skipping {joint_name} as there don't seem to be any constituent candidates in the database.")
             continue
         terms = np.unique(reduce(lambda x, y: x + y,  # treat the joint candidacy's availability as the sum of their combined availabilities
                                  [c.info.terms for c in relevant_candidates]))

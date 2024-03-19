@@ -7,27 +7,48 @@ from copy import copy
 
 # CONFIGURABLES
 
-CANDIDACY_FILE = "../data/exec-nominees-2023-final.csv"
+CANDIDACY_FILE = "../data/exec-nominees-2024-cleaned.csv"
 BALLOT_FILE = "../data/exec-votes-2023.csv"
 
 election_helper.MAX_POSITIONS = 3
-election_helper.CANDIDATE_START_ROW = 2
+election_helper.CANDIDATE_START_ROW = 1
 election_helper.VOTING_START_ROW = 3
+
+# CANDIDACY COLUMNS
+# make sure your CSV has these columns, you can bullshit them if obsolete
+
+# the really important columns you 100% should have:
+# qualtrics is dumb so we have to join names. if the names are pre-joined,
+# put the full name in the surname column and leave the firstname column empy.
+election_helper.SURNAME_COL = 0
+election_helper.FIRSTNAME_COL = 1
+election_helper.EMAIL_COL = 5
+election_helper.ROLES_COL = 2 # the roles the candidate is running for, separated by commas.
+# i.e.: "Legacy Coordinator,Journal Editor,Membership Chair"
+
+# the somewhat obsolete columns you can definitely bullshit
+# was used for candidate filtering
+election_helper.STATUS_COL = 6 # student status for candidate validation, approved value: "Yes"
+election_helper.CAND_TYPE_COL = 7 # literally anything other than "Survey Preview" will pass the candidate
+election_helper.TERMS_COL = 8 # the terms the candidate will be a student for. approved value: "Term 1,Term 2"
+
+# BALLOT VALIDATION
+FINISHED_SURVEY_COLUMN = 6 # to filter incomplete/unsubmitted ballots
+STUDENTNUM_COLUMN = 17 # student number column
 
 # if someone has already gone through and checked eligibility and all you have is raw vote data, use this.
 USE_RAW_VOTING_INFO = True
 RAW_VOTING_OFFSET = -18  # offset the column designations in VOTING.csv.
 
-# write in joint candidates here
+# write in joint candidates here, moving on we're trying to avoid this (2024)
 
 joints = [(["Homer Simpson", "Lenny Leonard"], ["Donut Coordinator"], "Homer Simpson and Lenny Leonard")]
 
-# elections with multiple seats, i.e. always quartermaster...
+# elections with multiple seats, i.e. always quartermasters...
 
 elec_with_multi_seats = {"Quartermaster": 5}
 
-# Add people who aren't on the candidate form but are on the
-# election here.
+# Add people who aren't on the candidate form but are on the election here.
 fill_ins = [election_helper.Candidate("Monty Burns", ["Director"],
                                       election_helper.Info("burns@springfieldpower.com", True, [1, 2]))]
 
@@ -35,9 +56,6 @@ fill_ins = [election_helper.Candidate("Monty Burns", ["Director"],
 # {<old>: <new>}
 names_to_change = {"FMCBC/ACC Rep": "FMCBC/ACC Representative"}
 
-
-FINISHED_SURVEY_COLUMN = 6
-STUDENTNUM_COLUMN = 17
 
 # END CONFIGURABLES
 
